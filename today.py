@@ -2,12 +2,6 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import datetime
 import pytz
-import json
-import os
-
-# Load bulan hijriah map dari file JSON
-with open(os.path.join(os.path.dirname(__file__), "bulan_hijriah_map.json"), "r", encoding="utf-8") as f:
-    bulan_map = json.load(f)
 
 # State conversation
 Tahun, TanggalBulan = range(2)
@@ -24,10 +18,6 @@ def get_javanese_date() -> str:
     today = datetime.datetime.now(tz).date()
     return get_pasaran_jawa(today)
 
-def get_hijri_date_from_local(day: int, month_en: str, year: int) -> str:
-    month_id = bulan_map.get(month_en, month_en)
-    return f"{day} {month_id} {year} H"
-
 def bulan_masehi_id(month_num: int) -> str:
     bulan_map = {
         1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei",
@@ -43,12 +33,6 @@ def bulan_to_number(bulan_str: str) -> int:
     }
     return bulan_map.get(bulan_str.lower(), 0)
 
-# Contoh data manual tanggal hijriah
-data_hijriah_manual = {
-    "28-05-2025": {"day": 1, "month": "Dhū al-Ḥijjah", "year": 1446},
-    # Tambahkan data lain sesuai kebutuhan
-}
-
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz = pytz.timezone("Asia/Jakarta")
     now = datetime.datetime.now(tz)
@@ -63,14 +47,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hari = hari_indonesia.get(hari_eng, hari_eng)
 
     tanggal_masehi = f"{now.day} {bulan_masehi_id(now.month)}"
-    tanggal_str = now.strftime("%d-%m-%Y")
-
-    hijri_info = data_hijriah_manual.get(tanggal_str)
-    if hijri_info:
-        tanggal_hijriah = get_hijri_date_from_local(hijri_info["day"], hijri_info["month"], hijri_info["year"])
-    else:
-        tanggal_hijriah = "Data Hijriah tidak tersedia"
-
     tanggal_jawa = get_javanese_date()
     jam = now.strftime("%H:%M:%S")
 
@@ -80,7 +56,6 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Tahun           : {tahun}\n"
         f"Hari            : {hari}\n"
         f"Tanggal Masehi  : {tanggal_masehi}\n"
-        f"Tanggal Hijriah : {tanggal_hijriah}\n"
         f"Tanggal Jawa    : {tanggal_jawa}\n"
         f"Jam             : {jam}\n"
         "</pre>"
@@ -138,13 +113,6 @@ async def get_tanggal_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['messages_to_delete'].append(update.message.message_id)
         return TanggalBulan
 
-    tanggal_str = tanggal_input.strftime("%d-%m-%Y")
-    hijri_info = data_hijriah_manual.get(tanggal_str)
-    if hijri_info:
-        tanggal_hijriah = get_hijri_date_from_local(hijri_info["day"], hijri_info["month"], hijri_info["year"])
-    else:
-        tanggal_hijriah = "Data Hijriah tidak tersedia"
-
     tanggal_jawa = get_pasaran_jawa(tanggal_input)
 
     hari_indonesia = {
@@ -157,27 +125,23 @@ async def get_tanggal_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tanggal_masehi = f"{tanggal_input.day} {bulan_masehi_id(tanggal_input.month)}"
 
     pesan = (
-    "           DETAIL HARI\n"  # Menampilkan DETAIL HARI di luar <pre>
-    "<pre>"
-    f"Tahun           : {tanggal_input.year}\n"
-    f"Hari            : {hari}\n"
-    f"Tanggal Masehi  : {tanggal_masehi}\n"
-    f"Tanggal Hijriah : {tanggal_hijriah}\n"
-    f"Tanggal Jawa    : {tanggal_jawa}\n"
-    "</pre>"
-)
+        "           DETAIL HARI\n"
+        "<pre>"
+        f"Tahun           : {tanggal_input.year}\n"
+        f"Hari            : {hari}\n"
+        f"Tanggal Masehi  : {tanggal_masehi}\n"
+        f"Tanggal Jawa    : {tanggal_jawa}\n"
+        "</pre>"
+    )
 
-    # Hanya hapus pesan bot yang tersimpan
     chat_id = update.message.chat_id
     for msg_id in context.user_data.get('messages_to_delete', []):
         try:
-            # Hapus hanya pesan bot yang tersimpan
-            if msg_id != update.message.message_id:  # Jangan hapus pesan dari user
+            if msg_id != update.message.message_id:
                 await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
         except:
             pass
 
-    # Kirim hasil akhir
     await context.bot.send_message(chat_id=chat_id, text=pesan, parse_mode="HTML")
 
     return ConversationHandler.END
