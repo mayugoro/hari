@@ -1,10 +1,20 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    ConversationHandler, MessageHandler, filters
+)
 import datetime
 import pytz
+import re
 
 # State conversation
-Tahun, TanggalBulan = range(2)
+Tahun, TanggalBulan, JumlahHari, ArahHari = range(4)
+
+def escape_markdown_v2(text: str) -> str:
+    """Escape karakter khusus MarkdownV2 kecuali backtick agar monospace tetap jalan."""
+    escape_chars = r'\\_*[]()~>#+-=|{}.!'
+    pattern = re.compile(f'([{re.escape(escape_chars)}])')
+    return pattern.sub(r'\\\1', text)
 
 def get_pasaran_jawa(date: datetime.date) -> str:
     acuan = datetime.date(2025, 5, 28)
@@ -12,11 +22,6 @@ def get_pasaran_jawa(date: datetime.date) -> str:
     delta_days = (date - acuan).days
     pasaran_index = (4 + delta_days) % 5
     return pasaran_list[pasaran_index]
-
-def get_javanese_date() -> str:
-    tz = pytz.timezone("Asia/Jakarta")
-    today = datetime.datetime.now(tz).date()
-    return get_pasaran_jawa(today)
 
 def bulan_masehi_id(month_num: int) -> str:
     bulan_map = {
@@ -37,35 +42,60 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tz = pytz.timezone("Asia/Jakarta")
     now = datetime.datetime.now(tz)
 
-    tahun = now.year
-    hari_eng = now.strftime("%A").lower()
     hari_indonesia = {
-        "monday": "Senin", "tuesday": "Selasa", "wednesday": "Rabu",
-        "thursday": "Kamis", "friday": "Jumat", "saturday": "Sabtu",
-        "sunday": "Minggu",
+        "Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu",
+        "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu",
+        "Sunday": "Minggu",
     }
-    hari = hari_indonesia.get(hari_eng, hari_eng)
-
+    hari = hari_indonesia.get(now.strftime("%A"), now.strftime("%A"))
     tanggal_masehi = f"{now.day} {bulan_masehi_id(now.month)}"
-    tanggal_jawa = get_javanese_date()
+    tanggal_jawa = get_pasaran_jawa(now.date())
     jam = now.strftime("%H:%M:%S")
 
+    judul = "✨ DETAIL HARI ✨"
+
     pesan = (
-        "           DETAIL HARI\n"
-        "<pre>"
-        f"Tahun           : {tahun}\n"
-        f"Hari            : {hari}\n"
-        f"Tanggal Masehi  : {tanggal_masehi}\n"
-        f"Tanggal Jawa    : {tanggal_jawa}\n"
-        f"Jam             : {jam}\n"
-        "</pre>"
+        f"`{judul}`\n\n"
+        f"🧮 `Tahun           : {now.year}`\n"
+        f"💌 `Hari            : {hari}`\n"
+        f"💌 `Tanggal Masehi  : {tanggal_masehi}`\n"
+        f"📧 `Tanggal Jawa    : {tanggal_jawa}`\n"
+        f"⌚ `Jam             : {jam}`"
     )
-    await update.message.reply_text(pesan, parse_mode="HTML")
+
+    pesan = escape_markdown_v2(pesan)
+    await update.message.reply_text(pesan, parse_mode="MarkdownV2")
 
 async def get_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_bot = await update.message.reply_text("Masukkan tahun :")
     context.user_data['messages_to_delete'] = [msg_bot.message_id, update.message.message_id]
     return Tahun
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    welcome_text = (
+        "Halo! 👋🗿\n"
+        "Selamat datang di bot cek hari dan tanggal.\n"
+        "Klik tombol menu didawah ini untuk lihat beberapa perintah\n\n"
+        "👇👇👇👇"
+    )
+    await update.message.reply_text(welcome_text)
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="Hubungi Admin",
+                url=f"https://t.me/Mayugoro?text=Bang%20lu%20ganteng🗿🗿"
+            )
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Silakan hubungi admin melalui tombol berikut:", reply_markup=reply_markup)
+
+async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    image_url = "https://i.imgur.com/qCmx5Bk.png"
+    caption = "Sini yg banyak🗿"
+    await context.bot.send_photo(chat_id=update.effective_chat.id, photo=image_url, caption=caption)
 
 async def get_tahun(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tahun = update.message.text.strip()
@@ -73,7 +103,7 @@ async def get_tahun(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Tahun harus berupa angka. Silakan coba lagi:")
         context.user_data['messages_to_delete'].append(update.message.message_id)
         return Tahun
-    
+
     context.user_data['tahun'] = int(tahun)
 
     msg_bot = await update.message.reply_text("Masukkan tanggal dan bulan :")
@@ -113,6 +143,12 @@ async def get_tanggal_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['messages_to_delete'].append(update.message.message_id)
         return TanggalBulan
 
+    return await kirim_detail_tanggal(update, context, tanggal_input)
+
+async def kirim_detail_tanggal(update: Update, context: ContextTypes.DEFAULT_TYPE, tanggal_input: datetime.date):
+    tz = pytz.timezone("Asia/Jakarta")
+    jam = datetime.datetime.now(tz).strftime("%H:%M:%S")
+
     tanggal_jawa = get_pasaran_jawa(tanggal_input)
 
     hari_indonesia = {
@@ -124,17 +160,19 @@ async def get_tanggal_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     tanggal_masehi = f"{tanggal_input.day} {bulan_masehi_id(tanggal_input.month)}"
 
-    pesan = (
-        "           DETAIL HARI\n"
-        "<pre>"
-        f"Tahun           : {tanggal_input.year}\n"
-        f"Hari            : {hari}\n"
-        f"Tanggal Masehi  : {tanggal_masehi}\n"
-        f"Tanggal Jawa    : {tanggal_jawa}\n"
-        "</pre>"
-    )
+    judul = "✨ DETAIL HARI ✨"
 
-    chat_id = update.message.chat_id
+    pesan = (
+        f"`{judul}`\n\n"
+        f"🧮 `Tahun           : {tanggal_input.year}`\n"
+        f"💌 `Hari            : {hari}`\n"
+        f"💌 `Tanggal Masehi  : {tanggal_masehi}`\n"
+        f"📧 `Tanggal Jawa    : {tanggal_jawa}`\n"
+        f"⌚ `Jam             : {jam}`"
+    )
+    pesan = escape_markdown_v2(pesan)
+
+    chat_id = update.effective_chat.id
     for msg_id in context.user_data.get('messages_to_delete', []):
         try:
             if msg_id != update.message.message_id:
@@ -142,16 +180,42 @@ async def get_tanggal_bulan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-    await context.bot.send_message(chat_id=chat_id, text=pesan, parse_mode="HTML")
-
+    await update.message.reply_text(pesan, parse_mode="MarkdownV2")
     return ConversationHandler.END
+
+async def get_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['arah'] = 'plus'
+    await update.message.reply_text("Mau maju berapa hari?")
+    return JumlahHari
+
+async def get_minus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['arah'] = 'minus'
+    await update.message.reply_text("Mau mundur berapa hari?")
+    return JumlahHari
+
+async def proses_jumlah_hari(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    jumlah = update.message.text.strip()
+    if not jumlah.isdigit():
+        await update.message.reply_text("Masukkan jumlah hari dalam angka.")
+        return JumlahHari
+
+    jumlah = int(jumlah)
+    arah = context.user_data.get('arah')
+    tz = pytz.timezone("Asia/Jakarta")
+    today = datetime.datetime.now(tz).date()
+    if arah == 'plus':
+        tanggal_target = today + datetime.timedelta(days=jumlah)
+    else:
+        tanggal_target = today - datetime.timedelta(days=jumlah)
+
+    return await kirim_detail_tanggal(update, context, tanggal_target)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Perintah dibatalkan.")
     return ConversationHandler.END
 
 def main():
-    token = "8193850177:AAH0IgjxhIEi-zKt4UdpP7FN_woRb9HnVas"
+    token = "_____" 
     app = ApplicationBuilder().token(token).build()
 
     conv_handler = ConversationHandler(
@@ -163,10 +227,25 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
 
-    app.add_handler(CommandHandler("today", today))
-    app.add_handler(conv_handler)
+    conv_plus_minus = ConversationHandler(
+        entry_points=[
+            CommandHandler('maju', get_plus),
+            CommandHandler('mundur', get_minus),
+        ],
+        states={
+            JumlahHari: [MessageHandler(filters.TEXT & ~filters.COMMAND, proses_jumlah_hari)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
 
-    print("Bot berjalan...")
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("today", today))
+    app.add_handler(CommandHandler("donate", donate))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(conv_handler)
+    app.add_handler(conv_plus_minus)
+
+    print("\033[32mBOT JALANNNN!!\033[0m")
     app.run_polling()
 
 if __name__ == "__main__":
